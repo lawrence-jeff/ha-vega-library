@@ -1,0 +1,56 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your library",
+        "description": "Use the library card number and PIN you use on your library's Vega website. The library ID is the first part of that library's Vega address (for example `mylibrary` in `mylibrary.na2.iiivega.com`).",
+        "data": {
+          "library_id": "Library ID",
+          "host": "Vega host",
+          "username": "Card number",
+          "password": "PIN"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "The library rejected the saved PIN for card {username}. Enter the current PIN.",
+        "data": {
+          "password": "PIN"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the library. Check the Vega host and try again.",
+      "invalid_auth": "The card number or PIN was rejected.",
+      "unknown_library": "No Vega library with that ID was found on this host.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This library card is already configured.",
+      "reauth_successful": "Signed in again successfully."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Vega Library Holds options",
+        "data": {
+          "scan_interval": "Check for changes every",
+          "columns": "Covers per row",
+          "max_covers": "Most covers to show (extras become a +N tile)",
+          "cover_height": "Cover height"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "holds_total": { "name": "Total holds" },
+      "holds_ready": { "name": "Ready for pickup" },
+      "next_pickup_deadline": { "name": "Next pickup deadline" }
+    },
+    "image": {
+      "ready_holds": { "name": "Ready for pickup covers" }
+    }
+  }
+}

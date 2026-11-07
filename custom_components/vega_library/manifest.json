@@ -1,0 +1,12 @@
+{
+  "domain": "vega_library",
+  "name": "Vega Library Holds",
+  "codeowners": ["@lawrence-jeff"],
+  "config_flow": true,
+  "documentation": "https://github.com/lawrence-jeff/ha-vega-library",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/lawrence-jeff/ha-vega-library/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
