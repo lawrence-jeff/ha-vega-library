@@ -4,6 +4,23 @@ Shows your library holds from a **Vega Discover** (Innovative / III) catalog in 
 
 > Unofficial. It talks to the same patron endpoints your library's own website uses and is not affiliated with Innovative or your library. Those endpoints can change without notice.
 
+## What it looks like
+
+![Example dashboard](docs/example-dashboard.png)
+
+The screenshot shows, left to right: the combined cover image and the count tiles, a per-book cover grid for ready holds, and a list of **all** holds with cover, author and status (ready with pickup date, in transit, or position in the queue). The covers and statuses come from the `holds` attribute. The full dashboard configuration is in [docs/example-dashboard.yaml](docs/example-dashboard.yaml): paste it into a dashboard's raw configuration editor and replace `library_mylibrary_1234` with your own entity IDs.
+
+### A minimal card
+
+```yaml
+type: picture-entity
+entity: image.library_mylibrary_1234_ready_for_pickup_covers
+show_name: false
+show_state: false
+```
+
+Use `visibility` on the card to hide it when `sensor.…_ready_for_pickup` is 0.
+
 ## What you get
 
 Every hold has a **status**: `ready` (waiting for pickup), `in_transit`, `waiting` (in the queue) or `frozen`.
@@ -98,23 +115,6 @@ Your card number and PIN are stored in the integration's config entry (Home Assi
 ## Options
 
 Settings → Devices & services → Vega Library Holds → Configure: check interval (default 2 hours), covers per row, the most covers to show, cover height, and how many days before a pickup deadline to warn.
-
-## Dashboard example
-
-```yaml
-type: picture-entity
-entity: image.library_mylibrary_1234_ready_for_pickup_covers
-show_name: false
-show_state: false
-```
-
-Use `visibility` on the card to hide it when `sensor.…_ready_for_pickup` is 0.
-
-## Dashboard examples
-
-![Example dashboard](docs/example-dashboard.png)
-
-The screenshot shows, left to right: the combined cover image and the count tiles, a per-book cover grid for ready holds, and a list of **all** holds with cover, author and status (ready with pickup date, in transit, or position in the queue). The covers and statuses come from the `holds` attribute. The full dashboard configuration is in [docs/example-dashboard.yaml](docs/example-dashboard.yaml): paste it into a dashboard's raw configuration editor and replace `library_mylibrary_1234` with your own entity IDs.
 
 ## Development
 
