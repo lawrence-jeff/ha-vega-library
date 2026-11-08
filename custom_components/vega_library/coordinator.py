@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from collections import Counter
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -52,6 +53,7 @@ class VegaCoordinator(DataUpdateCoordinator[list[Hold]]):
         except VegaError as err:
             raise UpdateFailed(f"Error talking to the library: {err}") from err
 
+        _LOGGER.debug("Fetched %d holds: %s", len(holds), Counter(h.status_name for h in holds))
         events = diff_holds(
             self._previous,
             holds,
@@ -61,6 +63,7 @@ class VegaCoordinator(DataUpdateCoordinator[list[Hold]]):
         )
         self._previous = holds
         for event_type, hold, extra in events:
+            _LOGGER.debug("Firing %s for hold %s (%s)", event_type, hold.id, extra)
             self.hass.bus.async_fire(
                 event_type,
                 {

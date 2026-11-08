@@ -28,6 +28,7 @@ api = _load("api")
 montage = _load("montage")
 events = _load("events")
 const = _load("const")
+summary = _load("summary")
 
 
 def _png(width=60, height=90, color=(200, 30, 30)) -> bytes:
@@ -323,3 +324,40 @@ def test_deadline_warning_fires_once_and_not_for_expired():
 def test_deadline_disabled_with_zero_days():
     ready = _hold("1", "b", 0, expires=NOW + timedelta(hours=5))
     assert events.diff_holds([ready], [ready], NOW, 0, set()) == []
+
+
+# ---------- diagnostics summary / logging ----------
+
+
+def test_summary_has_no_titles_authors_or_ids():
+    holds = [_hold("secret-id-1", "b", 0), _hold("secret-id-2", "t", 1)]
+    out = summary.summarize_holds(holds)
+    text = repr(out)
+    assert "Book" not in text and "secret-id" not in text
+    assert out["by_status"] == {"ready": 1, "in_transit": 1}
+    assert {c["code"] for c in out["raw_status_codes"]} == {"b", "t"}
+
+
+def test_unknown_status_code_warns_once(caplog):
+    client = api.VegaClient(None, "lib", "na2.iiivega.com", "c", "p")
+    item = {"id": 1, "priority": 3, "status": "zz", "resource": {"title": "X"}}
+    with caplog.at_level("WARNING"):
+        client._parse_holds([item, item])
+    assert len([r for r in caplog.records if "Unrecognised hold status code" in r.message]) == 1
+
+
+def test_unparseable_hold_is_skipped_with_a_warning(caplog):
+    client = api.VegaClient(None, "lib", "na2.iiivega.com", "c", "p")
+    bad = {"id": 1, "priority": None, "resource": {}}
+    with caplog.at_level("WARNING"):
+        assert client._parse_holds([bad, RAW_READY]) != []
+    assert any("could not be parsed" in r.message for r in caplog.records)
+
+
+def test_pin_is_never_logged(caplog):
+    session = FakeSession([FakeResponse(401)], [])
+    client = api.VegaClient(session, "lib", "na2.iiivega.com", "1234567890", "9999")
+    with caplog.at_level("DEBUG"), pytest.raises(api.VegaAuthError):
+        import asyncio
+        asyncio.run(client.async_get_holds())
+    assert "9999" not in caplog.text and "1234567890" not in caplog.text

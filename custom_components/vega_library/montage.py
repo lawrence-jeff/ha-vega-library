@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import io
+import logging
 
 from PIL import Image, ImageDraw, ImageFont
+
+_LOGGER = logging.getLogger(__name__)
 
 # Typical book cover aspect ratio (width / height), used for the "+N" tile and the fixed canvas width.
 COVER_ASPECT = 0.67
@@ -29,9 +32,11 @@ def build_montage(
             continue
         try:
             im = Image.open(io.BytesIO(raw)).convert("RGB")
-        except Exception:  # noqa: BLE001 - any decode problem just skips the cover
+        except Exception as err:  # noqa: BLE001 - any decode problem just skips the cover
+            _LOGGER.debug("Skipping an image that could not be decoded: %r", err)
             continue
         if im.width < 20 or im.height < 20:  # Syndetics returns a 1x1 gif when it has no cover
+            _LOGGER.debug("Skipping a %dx%d placeholder cover", im.width, im.height)
             continue
         covers.append(im.resize((max(1, round(im.width * height / im.height)), height)))
 

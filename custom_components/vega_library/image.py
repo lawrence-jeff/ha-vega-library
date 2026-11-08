@@ -76,6 +76,17 @@ class ReadyHoldsImage(CoordinatorEntity[VegaCoordinator], ImageEntity):
                     for h in ready
                 )
             )
+            wanted = sum(1 for h in ready if h.cover_url)
+            got = sum(1 for c in covers if c)
+            if got < wanted:
+                _LOGGER.warning(
+                    "Could not download %d of %d covers for the ready-holds image "
+                    "(run with debug logging to see which)",
+                    wanted - got,
+                    wanted,
+                )
+            else:
+                _LOGGER.debug("Downloaded %d covers for the ready-holds image", got)
             options = self._entry.options
             self._image = await self.hass.async_add_executor_job(
                 build_montage,

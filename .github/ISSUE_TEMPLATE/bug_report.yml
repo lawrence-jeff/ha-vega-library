@@ -1,0 +1,45 @@
+name: Bug report
+description: Something is wrong, missing or looks different from what you expected
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! The details below make most problems quick to track down.
+        **Never paste your card number or PIN.** The diagnostics file already leaves them out.
+  - type: input
+    id: catalog
+    attributes:
+      label: Library catalog address
+      description: Just the part like `mylibrary.na2.iiivega.com` (no card number). Helps me see which library and region you use.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Home Assistant version and integration version
+      placeholder: "2026.11.0, vega_library 0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics file
+      description: "Settings → Devices & services → Vega Library Holds → ⋮ → Download diagnostics, then drag the file in here. It contains no card number, PIN, titles or authors."
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log
+      description: |
+        Add this to `configuration.yaml`, restart, reproduce the problem, then paste the lines that mention `vega_library` (Settings → System → Logs → Show raw logs).
+        ```yaml
+        logger:
+          logs:
+            custom_components.vega_library: debug
+        ```
+      render: text

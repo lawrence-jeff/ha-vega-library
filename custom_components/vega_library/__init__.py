@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, callback
@@ -12,6 +14,8 @@ from homeassistant.helpers.storage import Store
 from .api import VegaClient
 from .const import CONF_AUTH_URL, CONF_HOST, CONF_LIBRARY_ID, CONF_SITE_HOST, DOMAIN, STORAGE_VERSION
 from .coordinator import VegaCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.SENSOR, Platform.IMAGE]
 
@@ -42,6 +46,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: VegaConfigEntry) -> bool
     await er.async_migrate_entries(hass, entry.entry_id, _migrate_unique_id(entry))
     store = _store(hass, entry)
     stored = await store.async_load() or {}
+    _LOGGER.debug(
+        "Setting up %s (stored refresh token: %s)", entry.title, bool(stored.get("refresh_token"))
+    )
 
     def save_token(token: str) -> None:
         store.async_delay_save(lambda: {"refresh_token": token}, 1)

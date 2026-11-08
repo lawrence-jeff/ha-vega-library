@@ -66,13 +66,17 @@ async def _validate(hass, data: Mapping[str, Any]) -> str | None:
     try:
         await client.async_login()
         await client.async_get_holds()
-    except VegaUnknownLibraryError:
+    except VegaUnknownLibraryError as err:
+        _LOGGER.warning("Vega setup check: library not found (%s)", err)
         return "unknown_library"
-    except VegaAuthError:
+    except VegaAuthError as err:
+        _LOGGER.warning("Vega setup check: sign-in rejected (%s)", err)
         return "invalid_auth"
-    except VegaConnectionError:
+    except VegaConnectionError as err:
+        _LOGGER.warning("Vega setup check: could not connect (%s)", err)
         return "cannot_connect"
-    except VegaError:
+    except VegaError as err:
+        _LOGGER.warning("Vega setup check: unexpected error (%r)", err)
         return "unknown"
     return None
 

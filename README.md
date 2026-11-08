@@ -116,6 +116,28 @@ Your card number and PIN are stored in the integration's config entry (Home Assi
 
 Settings → Devices & services → Vega Library Holds → Configure: check interval (default 2 hours), covers per row, the most covers to show, cover height, and how many days before a pickup deadline to warn.
 
+## Troubleshooting
+
+**Turn on debug logging** by adding this to `configuration.yaml` and restarting:
+
+```yaml
+logger:
+  logs:
+    custom_components.vega_library: debug
+```
+
+The log then shows each step: discovery of your library, which sign-in method was used (refresh token or PIN), how many holds were fetched, how many are in each status, and every event fired. Your card number, PIN and tokens are never logged.
+
+**Download diagnostics** from Settings → Devices & services → Vega Library Holds → ⋮ → *Download diagnostics*. It contains counts, raw status codes and update timing, and leaves out credentials, titles, authors and hold IDs, so it is safe to attach to an issue.
+
+Things the integration warns about on its own:
+
+- *Unrecognised hold status code*: the library used a status code I haven't seen. The hold is treated as "waiting"; please report the code.
+- *Could not download N of M covers*: the cover service didn't answer for some books. The combined image skips them.
+- *Skipping a hold that could not be parsed*: the library returned a hold in a shape the integration doesn't understand.
+
+When opening an issue, the template asks for your library's catalog address (not your card number), versions, the diagnostics file and the debug log.
+
 ## Development
 
 ```

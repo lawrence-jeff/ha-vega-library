@@ -22,6 +22,9 @@ from .const import STATUS_FROZEN, STATUS_IN_TRANSIT, STATUS_READY, STATUS_WAITIN
 _LOGGER = logging.getLogger(__name__)
 
 CLIENT_ID = "convergence"
+ISSUES_URL = "https://github.com/lawrence-jeff/ha-vega-library/issues"
+# Status codes seen so far: "0" waiting, "b" ready, "t" in transit.
+KNOWN_STATUS_CODES = {"0", "b", "t"}
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
 # Refresh a little before the access token really expires.
 EXPIRY_SKEW = 60
@@ -64,27 +67,45 @@ async def async_discover(session: aiohttp.ClientSession, address: str) -> Discov
         address = f"https://{address}"
     parsed = urlparse(address)
     if parsed.scheme != "https" or not parsed.hostname:
+        _LOGGER.warning("Vega discovery: %r is not an https address", address)
         raise VegaUnknownLibraryError(address)
     origin = f"https://{parsed.netloc}"
+    _LOGGER.debug("Vega discovery: checking %s", origin)
     try:
         async with session.get(f"{origin}/lookup", timeout=REQUEST_TIMEOUT) as resp:
             if resp.status != 200:
+                _LOGGER.warning("Vega discovery: %s/lookup returned HTTP %s", origin, resp.status)
                 raise VegaUnknownLibraryError(f"{origin}/lookup returned {resp.status}")
             code = (await resp.text()).strip().lower()
         async with session.get(f"{origin}/config.js", timeout=REQUEST_TIMEOUT) as resp:
             if resp.status != 200:
+                _LOGGER.warning("Vega discovery: %s/config.js returned HTTP %s", origin, resp.status)
                 raise VegaUnknownLibraryError(f"{origin}/config.js returned {resp.status}")
             config_js = await resp.text()
     except (aiohttp.ClientError, TimeoutError) as err:
-        raise VegaConnectionError(str(err)) from err
+        _LOGGER.warning("Vega discovery: could not reach %s: %s", origin, err)
+        raise VegaConnectionError(f"discovery: {err}") from err
 
     api_url = re.search(r"var API_URL\s*=\s*'([^']+)'", config_js)
     if not re.fullmatch(r"[a-z0-9-]+", code) or not api_url:
+        _LOGGER.warning(
+            "Vega discovery: %s does not look like a Vega site (lookup returned %d chars, API_URL %s)",
+            origin,
+            len(code),
+            "found" if api_url else "missing",
+        )
         raise VegaUnknownLibraryError(f"{origin} does not look like a Vega site")
     host = re.sub(r"^https?://", "", api_url.group(1)).rstrip("/").lower()
     keycloak = re.search(r"var KEYCLOAK_URL\s*=\s*'([^']+)'", config_js)
     auth_url = (
         keycloak.group(1).replace(":443", "").rstrip("/") if keycloak else f"https://auth.{host}/auth"
+    )
+    _LOGGER.debug(
+        "Vega discovery: site code %s, host %s, auth %s, served from %s",
+        code,
+        host,
+        auth_url,
+        parsed.netloc.lower(),
     )
     return Discovery(code, host, auth_url, parsed.netloc.lower())
 
@@ -203,26 +224,40 @@ class VegaClient:
         self._holds_url = f"https://{host}/api/search-result/patrons/me/holds"
         self._domain = f"{site_code}.{host}"
         self._host_domain = site_host or self._domain
+        self._warned_codes: set[str | None] = set()
+        _LOGGER.debug("Vega client for %s (token endpoint %s)", self._domain, self._token_url)
 
     async def _token_request(self, form: dict[str, str]) -> None:
         """POST to the token endpoint and store the result."""
+        grant = form["grant_type"]
         form = {"client_id": CLIENT_ID, **form}
+        _LOGGER.debug("Requesting %s token", grant)
         try:
             async with self._session.post(
                 self._token_url, data=form, timeout=REQUEST_TIMEOUT
             ) as resp:
                 if resp.status == 404:
+                    _LOGGER.warning("Token endpoint %s returned 404 (wrong library?)", self._token_url)
                     raise VegaUnknownLibraryError(self._token_url)
                 if resp.status in (400, 401):
-                    raise VegaAuthError(f"Token endpoint returned {resp.status}")
+                    _LOGGER.debug("%s token request rejected: HTTP %s", grant, resp.status)
+                    raise VegaAuthError(f"{grant} token request rejected (HTTP {resp.status})")
                 resp.raise_for_status()
                 data = await resp.json()
-        except (aiohttp.ClientError, TimeoutError) as err:
-            raise VegaConnectionError(str(err)) from err
+        except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+            raise VegaConnectionError(f"{grant} token request failed: {err!r}") from err
 
         token = data.get("access_token")
         if not token:
-            raise VegaConnectionError("Token response had no access_token")
+            raise VegaConnectionError(
+                f"{grant} token response had no access_token (keys: {sorted(data)})"
+            )
+        _LOGGER.debug(
+            "Got %s token (expires in %ss, new refresh token: %s)",
+            grant,
+            data.get("expires_in"),
+            bool(data.get("refresh_token")),
+        )
         self._access_token = token
         self._access_expires = time.monotonic() + int(data.get("expires_in", 300)) - EXPIRY_SKEW
         if new_refresh := data.get("refresh_token"):
@@ -239,7 +274,7 @@ class VegaClient:
                 )
                 return
             except VegaAuthError:
-                _LOGGER.debug("Refresh token rejected, logging in with PIN")
+                _LOGGER.debug("Refresh token rejected, signing in with the stored PIN instead")
                 self._refresh_token = None
         await self._token_request(
             {"grant_type": "password", "username": self._username, "password": self._pin}
@@ -274,12 +309,41 @@ class VegaClient:
                         raise VegaAuthError(f"Holds endpoint returned {resp.status}")
                     resp.raise_for_status()
                     data = await resp.json()
-            except (aiohttp.ClientError, TimeoutError) as err:
-                raise VegaConnectionError(str(err)) from err
+            except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+                raise VegaConnectionError(f"holds request failed: {err!r}") from err
             if not isinstance(data, list):
-                raise VegaConnectionError("Unexpected holds response")
-            return [parse_hold(item) for item in data]
+                raise VegaConnectionError(f"holds response was {type(data).__name__}, expected a list")
+            holds = self._parse_holds(data)
+            _LOGGER.debug("Fetched %d holds", len(holds))
+            return holds
         raise VegaConnectionError("Could not fetch holds")  # pragma: no cover
+
+    def _parse_holds(self, items: list[Any]) -> list[Hold]:
+        holds: list[Hold] = []
+        for item in items:
+            try:
+                hold = parse_hold(item)
+            except (AttributeError, KeyError, TypeError, ValueError) as err:
+                keys = sorted(item) if isinstance(item, dict) else type(item).__name__
+                _LOGGER.warning("Skipping a hold that could not be parsed (%r): %s", keys, err)
+                continue
+            if (
+                hold.status not in KNOWN_STATUS_CODES
+                and hold.priority != 0
+                and hold.status not in self._warned_codes
+            ):
+                self._warned_codes.add(hold.status)
+                _LOGGER.warning(
+                    "Unrecognised hold status code %r (queue position %s, vendor %s); "
+                    "treating it as '%s'. Please report it at %s",
+                    hold.status,
+                    hold.priority,
+                    hold.vendor,
+                    hold.status_name,
+                    ISSUES_URL,
+                )
+            holds.append(hold)
+        return holds
 
     async def async_fetch_cover(self, url: str) -> bytes | None:
         """Download a cover image; None if unavailable."""
@@ -287,5 +351,6 @@ class VegaClient:
             async with self._session.get(url, timeout=REQUEST_TIMEOUT) as resp:
                 resp.raise_for_status()
                 return await resp.read()
-        except (aiohttp.ClientError, asyncio.TimeoutError):
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.debug("Cover download failed for %s: %r", url, err)
             return None
