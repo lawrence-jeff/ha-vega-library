@@ -57,11 +57,28 @@ automation:
 
 ## Install
 
-**HACS (custom repository):** HACS → ⋮ → Custom repositories → add this repo as type *Integration* → download → restart Home Assistant.
+### With HACS (recommended)
 
-**Manual:** copy `custom_components/vega_library` into your Home Assistant `custom_components` folder and restart.
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=lawrence-jeff&repository=ha-vega-library&category=integration)
 
-Then: Settings → Devices & services → Add integration → *Vega Library Holds*.
+The button opens this repository in your own Home Assistant's HACS (you'll be asked for your Home Assistant address the first time). If you'd rather do it by hand:
+
+1. In Home Assistant, open **HACS** from the sidebar. (Don't have it? Install HACS first from <https://hacs.xyz>.)
+2. Click the **⋮ menu (top right) → Custom repositories**.
+3. In **Repository**, paste `https://github.com/lawrence-jeff/ha-vega-library`.
+4. In **Type** (or Category), choose **Integration**, then click **Add**.
+5. Close the dialog. Search HACS for **Vega Library Holds**, open it and click **Download**.
+6. **Restart Home Assistant** (Settings → System → Restart). Home Assistant only loads new integrations at startup.
+
+### Manual
+
+Copy the `custom_components/vega_library` folder into your Home Assistant `config/custom_components/` folder and restart.
+
+### Add the integration
+
+[![Open your Home Assistant instance and start setting up this integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=vega_library)
+
+After the restart, click the button above, or go to **Settings → Devices & services → Add integration**, search for **Vega Library Holds** and follow the prompts (see Setup below).
 
 ## Setup
 
@@ -92,6 +109,12 @@ show_state: false
 ```
 
 Use `visibility` on the card to hide it when `sensor.…_ready_for_pickup` is 0.
+
+## Dashboard examples
+
+![Example dashboard](docs/example-dashboard.png)
+
+The screenshot shows, left to right: the combined cover image and the count tiles, a per-book cover grid for ready holds, and a list of **all** holds with cover, author and status (ready with pickup date, in transit, or position in the queue). The covers and statuses come from the `holds` attribute. The full dashboard configuration is in [docs/example-dashboard.yaml](docs/example-dashboard.yaml): paste it into a dashboard's raw configuration editor and replace `library_mylibrary_1234` with your own entity IDs.
 
 ## Development
 

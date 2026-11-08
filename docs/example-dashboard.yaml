@@ -1,0 +1,76 @@
+# Example dashboard for Vega Library Holds.
+# Replace library_mylibrary_1234 with your own entity IDs (Settings > Devices & services > Vega Library Holds).
+# Dashboard > Edit > Raw configuration editor, or paste a card at a time.
+title: Library holds
+views:
+- title: Library
+  path: library
+  type: masonry
+  cards:
+  - type: markdown
+    title: Library ready holds
+    content: <img src="{{ state_attr('image.library_mylibrary_1234_ready_for_pickup_covers', 'entity_picture') }}" width="100%">
+  - type: grid
+    columns: 2
+    square: false
+    cards:
+    - type: tile
+      entity: sensor.library_mylibrary_1234_all_holds
+      name: All holds
+      icon: mdi:book-multiple
+    - type: tile
+      entity: sensor.library_mylibrary_1234_ready_for_pickup
+      name: Ready
+      icon: mdi:book-check-outline
+      color: green
+    - type: tile
+      entity: sensor.library_mylibrary_1234_in_transit
+      name: In transit
+      icon: mdi:truck-delivery-outline
+      color: orange
+    - type: tile
+      entity: sensor.library_mylibrary_1234_waiting_in_queue
+      name: Waiting
+      icon: mdi:book-clock-outline
+      color: blue
+  - type: tile
+    entity: sensor.library_mylibrary_1234_next_pickup_deadline
+    name: Next pickup deadline
+    icon: mdi:calendar-alert
+    color: red
+  - type: markdown
+    title: Ready for pickup
+    content: |-
+      {% set ready = state_attr('sensor.library_mylibrary_1234_ready_for_pickup', 'holds') %}
+      <table align="center"><tr>
+      {% for h in ready %}
+      <td align="center" width="140" valign="top">
+      <img src="{{ h.cover_url_large or h.cover_url }}" width="120"><br>
+      <b>{{ h.title.split(':')[0] | truncate(24) }}</b><br>
+      until {{ (h.pickup_by | as_datetime | as_local).strftime('%b %-d') }}
+      </td>
+      {% endfor %}
+      </tr></table>
+  - type: markdown
+    title: All holds
+    content: |-
+      {% set holds = state_attr('sensor.library_mylibrary_1234_all_holds', 'holds') | sort(attribute='position') %}
+      <table width="100%">
+      {% for h in holds %}
+      <tr>
+      <td width="60"><img src="{{ h.cover_url }}" height="76"></td>
+      <td><b>{{ h.title }}</b><br>{{ h.author }}</td>
+      <td align="right">
+      {% if h.status == 'ready' -%}
+      ✅ Ready until {{ (h.pickup_by | as_datetime | as_local).strftime('%b %-d') }}
+      {%- elif h.status == 'in_transit' -%}
+      🚚 In transit
+      {%- elif h.status == 'frozen' -%}
+      ❄️ Frozen
+      {%- else -%}
+      #{{ h.position }} of {{ h.queue_length }}
+      {%- endif %}
+      </td>
+      </tr>
+      {% endfor %}
+      </table>
