@@ -10,10 +10,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+import re
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
+
+from .const import STATUS_FROZEN, STATUS_IN_TRANSIT, STATUS_READY, STATUS_WAITING
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +44,52 @@ class VegaUnknownLibraryError(VegaError):
 
 
 @dataclass(frozen=True)
+class Discovery:
+    """What we learn from a library's Vega catalog address."""
+
+    site_code: str  # e.g. "slouc"; also the library ID used in headers and the auth realm
+    host: str  # Vega API host, e.g. "na2.iiivega.com"
+    auth_url: str  # Keycloak base URL, e.g. "https://auth.na2.iiivega.com/auth"
+    site_host: str  # host the catalog is served from (may be a vanity domain)
+
+
+async def async_discover(session: aiohttp.ClientSession, address: str) -> Discovery:
+    """Work out the library ID and Vega host from a library's catalog address.
+
+    Every Vega site serves ``/lookup`` (plain text site code) and ``/config.js``
+    (API and Keycloak URLs); the Vega web app itself reads both on startup.
+    """
+    address = address.strip()
+    if "//" not in address:
+        address = f"https://{address}"
+    parsed = urlparse(address)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise VegaUnknownLibraryError(address)
+    origin = f"https://{parsed.netloc}"
+    try:
+        async with session.get(f"{origin}/lookup", timeout=REQUEST_TIMEOUT) as resp:
+            if resp.status != 200:
+                raise VegaUnknownLibraryError(f"{origin}/lookup returned {resp.status}")
+            code = (await resp.text()).strip().lower()
+        async with session.get(f"{origin}/config.js", timeout=REQUEST_TIMEOUT) as resp:
+            if resp.status != 200:
+                raise VegaUnknownLibraryError(f"{origin}/config.js returned {resp.status}")
+            config_js = await resp.text()
+    except (aiohttp.ClientError, TimeoutError) as err:
+        raise VegaConnectionError(str(err)) from err
+
+    api_url = re.search(r"var API_URL\s*=\s*'([^']+)'", config_js)
+    if not re.fullmatch(r"[a-z0-9-]+", code) or not api_url:
+        raise VegaUnknownLibraryError(f"{origin} does not look like a Vega site")
+    host = re.sub(r"^https?://", "", api_url.group(1)).rstrip("/").lower()
+    keycloak = re.search(r"var KEYCLOAK_URL\s*=\s*'([^']+)'", config_js)
+    auth_url = (
+        keycloak.group(1).replace(":443", "").rstrip("/") if keycloak else f"https://auth.{host}/auth"
+    )
+    return Discovery(code, host, auth_url, parsed.netloc.lower())
+
+
+@dataclass(frozen=True)
 class Hold:
     """A single hold on the patron's account."""
 
@@ -53,11 +103,44 @@ class Hold:
     frozen: bool
     expires: datetime | None
     cover_url: str | None
+    cover_url_large: str | None = None
+
+    @property
+    def status_name(self) -> str:
+        """ready / in_transit / waiting / frozen.
+
+        Observed library codes: "b" = ready on the shelf, "t" = in transit, "0" = waiting.
+        Queue position 0 also means ready, which covers digital holds whose status code
+        has not been seen. Unknown codes fall back to "waiting".
+        """
+        if self.frozen:
+            return STATUS_FROZEN
+        if self.status == "b" or self.priority == 0:
+            return STATUS_READY
+        if self.status == "t":
+            return STATUS_IN_TRANSIT
+        return STATUS_WAITING
 
     @property
     def ready(self) -> bool:
-        """True when the item is waiting for pickup (no one ahead of the patron)."""
-        return self.priority == 0
+        """True when the hold is waiting for pickup."""
+        return self.status_name == STATUS_READY
+
+    def as_dict(self) -> dict[str, Any]:
+        """JSON-friendly form used in sensor attributes and events."""
+        return {
+            "id": self.id,
+            "title": self.title,
+            "author": self.author,
+            "status": self.status_name,
+            "position": self.priority,
+            "queue_length": self.queue_length,
+            "vendor": self.vendor,
+            "frozen": self.frozen,
+            "pickup_by": self.expires.isoformat() if self.expires else None,
+            "cover_url": self.cover_url,
+            "cover_url_large": self.cover_url_large,
+        }
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -85,6 +168,7 @@ def parse_hold(item: dict[str, Any]) -> Hold:
         frozen=bool(item.get("frozen")),
         expires=_parse_dt(item.get("expirationDate")),
         cover_url=cover.get("medium") or cover.get("large") or cover.get("small"),
+        cover_url_large=cover.get("large"),
     )
 
 
@@ -94,10 +178,13 @@ class VegaClient:
     def __init__(
         self,
         session: aiohttp.ClientSession,
-        library_id: str,
+        site_code: str,
         host: str,
         username: str,
         pin: str,
+        *,
+        auth_url: str | None = None,
+        site_host: str | None = None,
         refresh_token: str | None = None,
         token_callback: Callable[[str], None] | None = None,
     ) -> None:
@@ -108,11 +195,14 @@ class VegaClient:
         self._token_callback = token_callback
         self._access_token: str | None = None
         self._access_expires = 0.0
-        self._token_url = (
-            f"https://auth.{host}/auth/realms/{library_id}/protocol/openid-connect/token"
-        )
+        # The Vega web app derives the Keycloak realm from the site code,
+        # dropping any "prefix-" before the last hyphen.
+        realm = re.sub(r"^[^.]*-", "", site_code.split(".")[0])
+        base = (auth_url or f"https://auth.{host}/auth").rstrip("/")
+        self._token_url = f"{base}/realms/{realm}/protocol/openid-connect/token"
         self._holds_url = f"https://{host}/api/search-result/patrons/me/holds"
-        self._domain = f"{library_id}.{host}"
+        self._domain = f"{site_code}.{host}"
+        self._host_domain = site_host or self._domain
 
     async def _token_request(self, form: dict[str, str]) -> None:
         """POST to the token endpoint and store the result."""
@@ -163,7 +253,7 @@ class VegaClient:
             "accept": "application/json, text/plain, */*",
             "api-version": "1",
             "iii-customer-domain": self._domain,
-            "iii-host-domain": self._domain,
+            "iii-host-domain": self._host_domain,
         }
 
     async def async_get_holds(self) -> list[Hold]:

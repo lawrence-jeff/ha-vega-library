@@ -9,7 +9,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
 from .api import VegaClient
-from .const import CONF_HOST, CONF_LIBRARY_ID, DOMAIN, STORAGE_VERSION
+from .const import CONF_AUTH_URL, CONF_HOST, CONF_LIBRARY_ID, CONF_SITE_HOST, DOMAIN, STORAGE_VERSION
 from .coordinator import VegaCoordinator
 
 PLATFORMS = [Platform.SENSOR, Platform.IMAGE]
@@ -37,6 +37,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: VegaConfigEntry) -> bool
         entry.data[CONF_HOST],
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
+        auth_url=entry.data.get(CONF_AUTH_URL),
+        site_host=entry.data.get(CONF_SITE_HOST),
         refresh_token=stored.get("refresh_token"),
         token_callback=save_token,
     )

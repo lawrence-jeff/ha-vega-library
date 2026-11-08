@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import VegaConfigEntry
 from .coordinator import VegaCoordinator
+from .const import STATUS_IN_TRANSIT, STATUS_WAITING
 from .entity import device_info
 
 
@@ -35,6 +36,10 @@ def _earliest_deadline(coordinator: VegaCoordinator) -> datetime | None:
     return min(deadlines) if deadlines else None
 
 
+def _status_count(status: str) -> Callable[[VegaCoordinator], int]:
+    return lambda c: len(c.holds_with_status(status))
+
+
 SENSORS: tuple[VegaSensorDescription, ...] = (
     VegaSensorDescription(
         key="holds_total",
@@ -42,6 +47,7 @@ SENSORS: tuple[VegaSensorDescription, ...] = (
         icon="mdi:book-clock-outline",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda c: len(c.data),
+        attrs_fn=lambda c: {"holds": [h.as_dict() for h in c.data]},
     ),
     VegaSensorDescription(
         key="holds_ready",
@@ -51,15 +57,24 @@ SENSORS: tuple[VegaSensorDescription, ...] = (
         value_fn=lambda c: len(c.ready_holds),
         attrs_fn=lambda c: {
             "titles": [h.title for h in c.ready_holds],
-            "holds": [
-                {
-                    "title": h.title,
-                    "author": h.author,
-                    "pickup_by": h.expires.isoformat() if h.expires else None,
-                }
-                for h in c.ready_holds
-            ],
+            "holds": [h.as_dict() for h in c.ready_holds],
         },
+    ),
+    VegaSensorDescription(
+        key="holds_in_transit",
+        translation_key="holds_in_transit",
+        icon="mdi:truck-delivery-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_status_count(STATUS_IN_TRANSIT),
+        attrs_fn=lambda c: {"holds": [h.as_dict() for h in c.holds_with_status(STATUS_IN_TRANSIT)]},
+    ),
+    VegaSensorDescription(
+        key="holds_waiting",
+        translation_key="holds_waiting",
+        icon="mdi:book-clock-outline",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_status_count(STATUS_WAITING),
+        attrs_fn=lambda c: {"holds": [h.as_dict() for h in c.holds_with_status(STATUS_WAITING)]},
     ),
     VegaSensorDescription(
         key="next_pickup_deadline",
@@ -85,6 +100,8 @@ class VegaSensor(CoordinatorEntity[VegaCoordinator], SensorEntity):
 
     entity_description: VegaSensorDescription
     _attr_has_entity_name = True
+    # Hold lists can be several KB and change often; keep them out of the history database.
+    _unrecorded_attributes = frozenset({"holds", "titles"})
 
     def __init__(
         self,

@@ -3,7 +3,7 @@
 Run with:  pip install pytest pytest-asyncio aiohttp pillow && pytest
 """
 
-import importlib.util
+import importlib
 import io
 import pathlib
 import sys
@@ -16,16 +16,18 @@ PKG = pathlib.Path(__file__).parent.parent / "custom_components" / "vega_library
 
 
 def _load(name: str):
-    """Import api.py / montage.py directly so the HA-dependent __init__ is not executed."""
-    spec = importlib.util.spec_from_file_location(f"vega_{name}", PKG / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    """Import a submodule without executing the HA-dependent package __init__."""
+    if "vega_library" not in sys.modules:
+        pkg = types.ModuleType("vega_library")
+        pkg.__path__ = [str(PKG)]
+        sys.modules["vega_library"] = pkg
+    return importlib.import_module(f"vega_library.{name}")
 
 
 api = _load("api")
 montage = _load("montage")
+events = _load("events")
+const = _load("const")
 
 
 def _png(width=60, height=90, color=(200, 30, 30)) -> bytes:
@@ -121,6 +123,9 @@ class FakeResponse:
     async def json(self):
         return self._payload
 
+    async def text(self):
+        return self._payload
+
 
 class FakeSession:
     def __init__(self, posts, gets):
@@ -134,6 +139,51 @@ class FakeSession:
 
     def get(self, url, **kw):
         return self.gets.pop(0)
+
+
+CONFIG_JS = """var API_URL = 'https://na2.iiivega.com';
+var KEYCLOAK_URL = 'https://auth.na2.iiivega.com:443/auth';
+"""
+
+
+@pytest.mark.asyncio
+async def test_discover_from_catalog_address():
+    session = FakeSession([], [FakeResponse(200, "slouc\n"), FakeResponse(200, CONFIG_JS)])
+    found = await api.async_discover(session, "slouc.na2.iiivega.com/search?x=1")
+    assert found.site_code == "slouc"
+    assert found.host == "na2.iiivega.com"
+    assert found.auth_url == "https://auth.na2.iiivega.com/auth"
+    assert found.site_host == "slouc.na2.iiivega.com"
+
+
+@pytest.mark.asyncio
+async def test_discover_vanity_domain_keeps_site_host():
+    session = FakeSession([], [FakeResponse(200, "mylib"), FakeResponse(200, CONFIG_JS)])
+    found = await api.async_discover(session, "https://catalog.mylibrary.org")
+    assert (found.site_code, found.site_host) == ("mylib", "catalog.mylibrary.org")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lookup",
+    [FakeResponse(404, ""), FakeResponse(200, "<html>not vega</html>")],
+)
+async def test_discover_rejects_non_vega_sites(lookup):
+    session = FakeSession([], [lookup, FakeResponse(200, CONFIG_JS)])
+    with pytest.raises(api.VegaUnknownLibraryError):
+        await api.async_discover(session, "https://example.com")
+
+
+@pytest.mark.asyncio
+async def test_discover_requires_https():
+    with pytest.raises(api.VegaUnknownLibraryError):
+        await api.async_discover(FakeSession([], []), "http://example.com")
+
+
+def test_realm_drops_prefix_before_last_hyphen():
+    client = api.VegaClient(None, "grp-mylib", "na2.iiivega.com", "c", "p")
+    assert "/realms/mylib/" in client._token_url
+    assert client._domain == "grp-mylib.na2.iiivega.com"
 
 
 def _client(session, **kw):
@@ -186,3 +236,90 @@ async def test_expired_access_token_is_retried_once():
     )
     assert len(await _client(session).async_get_holds()) == 1
     assert len(session.post_forms) == 2
+
+
+# ---------- status model ----------
+
+def _hold(id="1", status="0", priority=3, frozen=False, expires=None, **kw):
+    return api.Hold(
+        id=id, title=f"Book {id}", author=None, vendor="gates", status=status,
+        priority=priority, queue_length=5, frozen=frozen, expires=expires,
+        cover_url=None, **kw,
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs,expected",
+    [
+        (dict(status="b", priority=0), "ready"),
+        (dict(status="0", priority=0), "ready"),  # digital holds: position 0 means ready
+        (dict(status="t", priority=1), "in_transit"),
+        (dict(status="0", priority=4), "waiting"),
+        (dict(status="zzz", priority=2), "waiting"),  # unknown code falls back to waiting
+        (dict(status="b", priority=0, frozen=True), "frozen"),
+    ],
+)
+def test_status_name(kwargs, expected):
+    assert _hold(**kwargs).status_name == expected
+
+
+def test_as_dict_has_cover_urls_and_status():
+    d = api.parse_hold(RAW_READY).as_dict()
+    assert d["status"] == "ready"
+    assert d["cover_url"] == "m" and d["cover_url_large"] == "l"
+    assert d["pickup_by"] == "2026-11-15T05:59:59+00:00"
+
+
+# ---------- events ----------
+
+from datetime import datetime, timedelta, timezone
+
+NOW = datetime(2026, 11, 7, tzinfo=timezone.utc)
+
+
+def _types(evts):
+    return [(t, h.id) for t, h, _ in evts]
+
+
+def test_first_poll_fires_nothing_but_records_deadlines():
+    soon = _hold("1", "b", 0, expires=NOW + timedelta(days=1))
+    notified = set()
+    assert events.diff_holds(None, [soon], NOW, 2, notified) == []
+    assert notified  # remembered, so it does not fire after the next poll
+    assert events.diff_holds([soon], [soon], NOW, 2, notified) == []
+
+
+def test_waiting_to_ready_fires_status_changed_and_ready():
+    before = [_hold("1", "0", 1)]
+    after = [_hold("1", "b", 0)]
+    out = events.diff_holds(before, after, NOW, 0, set())
+    assert _types(out) == [
+        (const.EVENT_HOLD_STATUS_CHANGED, "1"),
+        (const.EVENT_HOLD_READY, "1"),
+    ]
+    assert out[1][2]["previous_status"] == "waiting"
+
+
+def test_new_and_removed_holds():
+    out = events.diff_holds([_hold("1")], [_hold("2", "b", 0)], NOW, 0, set())
+    assert _types(out) == [
+        (const.EVENT_HOLD_ADDED, "2"),
+        (const.EVENT_HOLD_READY, "2"),
+        (const.EVENT_HOLD_REMOVED, "1"),
+    ]
+
+
+def test_deadline_warning_fires_once_and_not_for_expired():
+    ready = _hold("1", "b", 0, expires=NOW + timedelta(days=1))
+    expired = _hold("2", "b", 0, expires=NOW - timedelta(hours=1))
+    far = _hold("3", "b", 0, expires=NOW + timedelta(days=9))
+    notified = set()
+    first = events.diff_holds([ready, expired, far], [ready, expired, far], NOW, 2, notified)
+    assert _types(first) == [(const.EVENT_PICKUP_DEADLINE, "1")]
+    assert first[0][2]["days_left"] == 1.0
+    assert events.diff_holds([ready], [ready], NOW, 2, notified) == []
+
+
+def test_deadline_disabled_with_zero_days():
+    ready = _hold("1", "b", 0, expires=NOW + timedelta(hours=5))
+    assert events.diff_holds([ready], [ready], NOW, 0, set()) == []

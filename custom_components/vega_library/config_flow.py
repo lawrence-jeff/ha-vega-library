@@ -22,6 +22,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .api import (
+    async_discover,
     VegaAuthError,
     VegaClient,
     VegaConnectionError,
@@ -30,15 +31,19 @@ from .api import (
 )
 from .entity import mask_card
 from .const import (
+    CONF_AUTH_URL,
     CONF_COLUMNS,
     CONF_COVER_HEIGHT,
+    CONF_DEADLINE_DAYS,
     CONF_HOST,
     CONF_LIBRARY_ID,
     CONF_MAX_COVERS,
     CONF_SCAN_INTERVAL,
+    CONF_SITE_HOST,
+    CONF_SITE_URL,
     DEFAULT_COLUMNS,
     DEFAULT_COVER_HEIGHT,
-    DEFAULT_HOST,
+    DEFAULT_DEADLINE_DAYS,
     DEFAULT_MAX_COVERS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -55,6 +60,8 @@ async def _validate(hass, data: Mapping[str, Any]) -> str | None:
         data[CONF_HOST],
         data[CONF_USERNAME],
         data[CONF_PASSWORD],
+        auth_url=data.get(CONF_AUTH_URL),
+        site_host=data.get(CONF_SITE_HOST),
     )
     try:
         await client.async_login()
@@ -78,28 +85,40 @@ class VegaConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
-            user_input[CONF_LIBRARY_ID] = user_input[CONF_LIBRARY_ID].strip().lower()
-            user_input[CONF_HOST] = user_input[CONF_HOST].strip().lower()
-            user_input[CONF_USERNAME] = user_input[CONF_USERNAME].strip()
-            await self.async_set_unique_id(
-                f"{user_input[CONF_HOST]}/{user_input[CONF_LIBRARY_ID]}/{user_input[CONF_USERNAME]}"
-            )
-            self._abort_if_unique_id_configured()
-            if error := await _validate(self.hass, user_input):
-                errors["base"] = error
-            else:
-                return self.async_create_entry(
-                    title=f"{user_input[CONF_LIBRARY_ID]} ({mask_card(user_input[CONF_USERNAME])})",
-                    data=user_input,
+            username = user_input[CONF_USERNAME].strip()
+            data: dict[str, Any] | None = None
+            try:
+                found = await async_discover(
+                    async_get_clientsession(self.hass), user_input[CONF_SITE_URL]
                 )
+            except VegaUnknownLibraryError:
+                errors["base"] = "unknown_library"
+            except VegaConnectionError:
+                errors["base"] = "cannot_connect"
+            else:
+                data = {
+                    CONF_LIBRARY_ID: found.site_code,
+                    CONF_HOST: found.host,
+                    CONF_AUTH_URL: found.auth_url,
+                    CONF_SITE_HOST: found.site_host,
+                    CONF_USERNAME: username,
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
+                }
+                await self.async_set_unique_id(f"{found.host}/{found.site_code}/{username}")
+                self._abort_if_unique_id_configured()
+                if error := await _validate(self.hass, data):
+                    errors["base"] = error
+                else:
+                    return self.async_create_entry(
+                        title=f"{found.site_code} ({mask_card(username)})", data=data
+                    )
 
         defaults = user_input or {}
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_LIBRARY_ID, default=defaults.get(CONF_LIBRARY_ID, "")): str,
-                    vol.Required(CONF_HOST, default=defaults.get(CONF_HOST, DEFAULT_HOST)): str,
+                    vol.Required(CONF_SITE_URL, default=defaults.get(CONF_SITE_URL, "")): str,
                     vol.Required(CONF_USERNAME, default=defaults.get(CONF_USERNAME, "")): str,
                     vol.Required(CONF_PASSWORD): TextSelector(
                         TextSelectorConfig(type=TextSelectorType.PASSWORD)
@@ -175,6 +194,9 @@ class VegaOptionsFlow(OptionsFlow):
                     vol.Required(
                         CONF_COVER_HEIGHT, default=o.get(CONF_COVER_HEIGHT, DEFAULT_COVER_HEIGHT)
                     ): _number(60, 400, "px"),
+                    vol.Required(
+                        CONF_DEADLINE_DAYS, default=o.get(CONF_DEADLINE_DAYS, DEFAULT_DEADLINE_DAYS)
+                    ): _number(0, 14, "days"),
                 }
             ),
         )

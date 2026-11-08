@@ -3,12 +3,14 @@
     "step": {
       "user": {
         "title": "Connect to your library",
-        "description": "Use the library card number and PIN you use on your library's Vega website. The library ID is the first part of that library's Vega address (for example `mylibrary` in `mylibrary.na2.iiivega.com`).",
+        "description": "Enter the web address of your library's online catalog (the page where you search for books and sign in), plus your library card number and PIN. The library is detected automatically.",
         "data": {
-          "library_id": "Library ID",
-          "host": "Vega host",
+          "site_url": "Library catalog address",
           "username": "Card number",
           "password": "PIN"
+        },
+        "data_description": {
+          "site_url": "For example https://mylibrary.na2.iiivega.com. This must be the Vega catalog itself, not the library's main website."
         }
       },
       "reauth_confirm": {
@@ -20,9 +22,9 @@
       }
     },
     "error": {
-      "cannot_connect": "Could not reach the library. Check the Vega host and try again.",
+      "cannot_connect": "Could not reach that address. Check it and try again.",
       "invalid_auth": "The card number or PIN was rejected.",
-      "unknown_library": "No Vega library with that ID was found on this host.",
+      "unknown_library": "That address does not look like a Vega Discover catalog. Use the address of the page where you search the catalog and sign in.",
       "unknown": "Unexpected error."
     },
     "abort": {
@@ -38,19 +40,34 @@
           "scan_interval": "Check for changes every",
           "columns": "Covers per row",
           "max_covers": "Most covers to show (extras become a +N tile)",
-          "cover_height": "Cover height"
+          "cover_height": "Cover height",
+          "deadline_days": "Warn this many days before a pickup deadline (0 = never)"
         }
       }
     }
   },
   "entity": {
     "sensor": {
-      "holds_total": { "name": "Total holds" },
-      "holds_ready": { "name": "Ready for pickup" },
-      "next_pickup_deadline": { "name": "Next pickup deadline" }
+      "holds_total": {
+        "name": "Holds"
+      },
+      "holds_ready": {
+        "name": "Ready for pickup"
+      },
+      "next_pickup_deadline": {
+        "name": "Next pickup deadline"
+      },
+      "holds_in_transit": {
+        "name": "In transit"
+      },
+      "holds_waiting": {
+        "name": "Waiting in queue"
+      }
     },
     "image": {
-      "ready_holds": { "name": "Ready for pickup covers" }
+      "ready_holds": {
+        "name": "Ready for pickup covers"
+      }
     }
   }
 }
