@@ -101,3 +101,7 @@ pytest
 ```
 
 The tests cover parsing, the status model, event detection, address discovery, token refresh and fallback, and the image layout, without needing Home Assistant.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
