@@ -42,8 +42,8 @@ def _status_count(status: str) -> Callable[[VegaCoordinator], int]:
 
 SENSORS: tuple[VegaSensorDescription, ...] = (
     VegaSensorDescription(
-        key="holds_total",
-        translation_key="holds_total",
+        key="holds_all",
+        translation_key="holds_all",
         icon="mdi:book-clock-outline",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda c: len(c.data),

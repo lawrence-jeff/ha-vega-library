@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
@@ -23,8 +24,22 @@ def _store(hass: HomeAssistant, entry: ConfigEntry) -> Store:
     return Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
 
 
+@callback
+def _migrate_unique_id(entry: ConfigEntry):
+    """Renamed sensor key: holds_total -> holds_all (keeps history and entity settings)."""
+
+    def migrate(reg_entry: er.RegistryEntry) -> dict[str, str] | None:
+        old = f"{entry.entry_id}_holds_total"
+        if reg_entry.unique_id == old:
+            return {"new_unique_id": f"{entry.entry_id}_holds_all"}
+        return None
+
+    return migrate
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: VegaConfigEntry) -> bool:
     """Set up from a config entry."""
+    await er.async_migrate_entries(hass, entry.entry_id, _migrate_unique_id(entry))
     store = _store(hass, entry)
     stored = await store.async_load() or {}
 

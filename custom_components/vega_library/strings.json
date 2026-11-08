@@ -48,9 +48,6 @@
   },
   "entity": {
     "sensor": {
-      "holds_total": {
-        "name": "Holds"
-      },
       "holds_ready": {
         "name": "Ready for pickup"
       },
@@ -62,6 +59,9 @@
       },
       "holds_waiting": {
         "name": "Waiting in queue"
+      },
+      "holds_all": {
+        "name": "All holds"
       }
     },
     "image": {

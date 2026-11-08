@@ -10,7 +10,7 @@ Every hold has a **status**: `ready` (waiting for pickup), `in_transit`, `waitin
 
 | Entity | Description |
 |---|---|
-| `sensor` Holds | Total number of holds. The `holds` attribute lists every hold (see below) |
+| `sensor` All holds | Number of holds of every status. The `holds` attribute lists every hold (see below) |
 | `sensor` Ready for pickup | Count of ready holds. Attributes: `titles`, and `holds` for just the ready ones |
 | `sensor` In transit | Count of holds moving between branches, with `holds` |
 | `sensor` Waiting in queue | Count of holds still in the queue, with `holds` |
