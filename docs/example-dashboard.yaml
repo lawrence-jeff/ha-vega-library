@@ -68,7 +68,7 @@ views:
       {%- elif h.status == 'frozen' -%}
       ❄️ Frozen
       {%- else -%}
-      #{{ h.position }} of {{ h.queue_length }}
+      {{ h.position }}{{ 'th' if 10 <= h.position % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(h.position % 10, 'th') }} in line ({{ h.queue_length }} waiting)
       {%- endif %}
       </td>
       </tr>
